@@ -20,38 +20,39 @@ utils.readFile(path.join(process.cwd(), 'package.json'))
             return console.error('Couldn\'t parse package.json');
         }
 
-        return showMainDeps(data);
+        return showDeps(data.dependencies)
+            .then((packages) => {
+                packages.sort((a, b) => a.date < b.date);
+                packages.forEach(formatLog);
+            })
+            .catch(err => console.error(err.stack));
     }, (err) => {
         console.error('File package.json not found!');
     })
     .catch((err) => console.error(err.stack));
 
-function showMainDeps(pack) {
-    let packages = {};
+function showDeps(deps, parentDeps) {
+    const packages = [];
     let chain = Promise.resolve();
 
-    utils.forEach(pack.dependencies, (version, name) => {
+    utils.forEach(deps, (version, name) => {
         chain = chain
             .then(() => getAboutPackage(name))
-            .then((data) => packages[name] = {name, version, data});
+            .then((data) => {
+                const versions = Object.keys(data.versions);
+                const lastVersion = semver.maxSatisfying(versions, version);
+                const pack = {
+                    date: new Date(data.time[lastVersion]),
+                    version: lastVersion,
+                    name: name,
+                    parentDeps
+                };
+
+                packages.push(pack);
+            });
     });
 
-    chain.then(() => {
-        packages = utils.map(packages, (pack, name) => {
-            const versions = Object.keys(pack.data.versions);
-            const lastVersion = semver.maxSatisfying(versions, pack.version);
-            return {
-                date: new Date(pack.data.time[lastVersion]),
-                version: lastVersion,
-                name
-            };
-        }).sort((a, b) => a.date < b.date);
-
-        packages.forEach(formatLog);
-    })
-    .catch(err => console.error(err.stack));
-
-    return chain;
+    return chain.then(() => packages);
 }
 
 function formatLog(pack) {
@@ -66,6 +67,7 @@ function formatLog(pack) {
     // 5 day ago
     } else if (diff < 1000 * 60 * 60 * 24 * 5) {
         released = chalk.yellow(fromNow);
+
     } else {
         released = chalk.green(fromNow);
     }
