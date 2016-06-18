@@ -22,7 +22,7 @@ utils.readFile(path.join(process.cwd(), 'package.json'))
 
         return showDeps(data.dependencies)
             .then((packages) => {
-                packages.sort((a, b) => a.date < b.date);
+                packages.sort((a, b) => b.date.getTime() - a.date.getTime());
                 packages.forEach(formatLog);
             })
             .catch(err => console.error(err.stack));
@@ -32,7 +32,9 @@ utils.readFile(path.join(process.cwd(), 'package.json'))
     .catch((err) => console.error(err.stack));
 
 function showDeps(deps, parentDeps) {
-    const packages = [];
+    parentDeps = parentDeps || [];
+
+    let packages = [];
     let chain = Promise.resolve();
 
     utils.forEach(deps, (version, name) => {
@@ -49,6 +51,12 @@ function showDeps(deps, parentDeps) {
                 };
 
                 packages.push(pack);
+
+                const deps = data.versions[lastVersion].dependencies;
+                if (deps)  {
+                    return showDeps(deps, parentDeps.concat(name))
+                        .then((packs) => packages = packages.concat(packs));
+                }
             });
     });
 
@@ -72,10 +80,16 @@ function formatLog(pack) {
         released = chalk.green(fromNow);
     }
 
+    let parents = '';
+    if (pack.parentDeps.length) {
+        parents = ' from ' + chalk.magenta(pack.parentDeps.join(' -> '));
+    }
+
     const text =
         chalk.blue(pack.name) +
         ' ' + chalk.cyan(pack.version) +
-        ' released ' + released;
+        ' released ' + released +
+        parents;
 
     console.log(text);
 }
