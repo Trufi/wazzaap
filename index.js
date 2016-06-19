@@ -10,8 +10,12 @@ const semver = require('semver');
 const columnify = require('columnify')
 const utils = require('./utils');
 
+const argv = require('minimist')(process.argv.slice(2));
+
 const registry = 'https://registry.npmjs.org/';
 const packageCache = {};
+
+const listLength = Number(argv.l, 10) || 20;
 
 utils.readFile(path.join(process.cwd(), 'package.json'))
     .then((data) => {
@@ -65,7 +69,7 @@ function showDeps(deps, parentDeps) {
 }
 
 function prettyPrint(packages) {
-    const slicedPackages = packages.slice(0, 20);
+    const slicedPackages = packages.slice(0, listLength);
 
     let table = slicedPackages.map(formatLog);
     if (slicedPackages.length < packages.length) {
