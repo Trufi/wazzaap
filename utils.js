@@ -21,6 +21,18 @@ exports.forEach = (obj, fn) => {
     }
 };
 
+exports.filterValues = (obj, fn) => {
+    const res = {};
+
+    for (const key in obj) {
+        if (fn(obj[key], key)) {
+            res[key] = obj[key];
+        }
+    }
+
+    return res;
+};
+
 exports.map = (obj, fn) => {
     const res = [];
 

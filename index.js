@@ -46,6 +46,9 @@ function showDeps(deps, parentDeps) {
         chain = chain
             .then(() => getAboutPackage(name))
             .then((data) => {
+                if (!data) { return; }
+
+                if (!data.versions) { return; }
                 const versions = Object.keys(data.versions);
                 const lastVersion = semver.maxSatisfying(versions, version);
                 const pack = {
@@ -57,9 +60,11 @@ function showDeps(deps, parentDeps) {
 
                 packages.push(pack);
 
-                const deps = data.versions[lastVersion].dependencies;
+                let deps = data.versions[lastVersion] && data.versions[lastVersion].dependencies;
                 if (deps)  {
-                    return showDeps(deps, parentDeps.concat(name))
+                    parentDeps = parentDeps.concat(name);
+                    deps = utils.filterValues(deps, (version, name) => parentDeps.indexOf(name) == -1);
+                    return showDeps(deps, parentDeps)
                         .then((packs) => packages = packages.concat(packs));
                 }
             });
@@ -115,21 +120,34 @@ function formatLog(pack) {
     };
 }
 
+function processVersions(versions) {
+    const result = {};
+
+    for (const ver in versions) {
+        result[ver] = {
+            dependencies: versions[ver].dependencies,
+            devDependencies: versions[ver].devDependencies
+        };
+    }
+
+    return result;
+}
+
 function getAboutPackage(name) {
     if (!packageCache[name]) {
         packageCache[name] = got(registry + name, {
             json: true
-        }).then((data) => data.body);
+        }).then((data) => {
+            return {
+                time: data.body.time,
+                versions: processVersions(data.body.versions)
+            };
+        }, (err) => {
+            return null;
+        });
     }
+
+    console.log(name);
 
     return packageCache[name];
-}
-
-function readPackageJson(pack) {
-    const deps = pack.dependencies;
-    const devDeps = pack.devDependencies;
-
-    if (deps) {
-        Object.keys()
-    }
 }
