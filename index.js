@@ -7,6 +7,7 @@ const path = require('path');
 const chalk = require('chalk');
 const moment = require('moment');
 const semver = require('semver');
+const columnify = require('columnify')
 const utils = require('./utils');
 
 const registry = 'https://registry.npmjs.org/';
@@ -23,7 +24,7 @@ utils.readFile(path.join(process.cwd(), 'package.json'))
         return showDeps(data.dependencies)
             .then((packages) => {
                 packages.sort((a, b) => b.date.getTime() - a.date.getTime());
-                packages.forEach(formatLog);
+                prettyPrint(packages);
             })
             .catch(err => console.error(err.stack));
     }, (err) => {
@@ -63,6 +64,23 @@ function showDeps(deps, parentDeps) {
     return chain.then(() => packages);
 }
 
+function prettyPrint(packages) {
+    const slicedPackages = packages.slice(0, 20);
+
+    let table = slicedPackages.map(formatLog);
+    if (slicedPackages.length < packages.length) {
+        table.push({
+            package: chalk.blue('...'),
+            version: chalk.cyan('...'),
+            updated: chalk.green('...')
+        });
+    }
+
+    const c = columnify(table);
+
+    console.log(c);
+}
+
 function formatLog(pack) {
     const diff = moment().diff(pack.date);
     const fromNow = moment(pack.date).fromNow();
@@ -82,16 +100,15 @@ function formatLog(pack) {
 
     let parents = '';
     if (pack.parentDeps.length) {
-        parents = ' from ' + chalk.magenta(pack.parentDeps.join(' -> '));
+        parents = chalk.magenta(pack.parentDeps.join(' -> '));
     }
 
-    const text =
-        chalk.blue(pack.name) +
-        ' ' + chalk.cyan(pack.version) +
-        ' released ' + released +
-        parents;
-
-    console.log(text);
+    return {
+        package: chalk.blue(pack.name),
+        version: chalk.cyan(pack.version),
+        updated: released,
+        from: parents
+    };
 }
 
 function getAboutPackage(name) {
