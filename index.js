@@ -7,8 +7,10 @@ const path = require('path');
 const chalk = require('chalk');
 const moment = require('moment');
 const semver = require('semver');
+const _ = require('lodash');
 const columnify = require('columnify')
 const utils = require('./utils');
+const get = require('./get');
 
 const argv = require('minimist')(process.argv.slice(2));
 
@@ -16,6 +18,7 @@ const registry = 'https://registry.npmjs.org/';
 const packageCache = {};
 
 const listLength = Number(argv.l, 10) || 20;
+const includeDevDeps = argv.dev;
 
 utils.readFile(path.join(process.cwd(), 'package.json'))
     .then((data) => {
@@ -25,7 +28,17 @@ utils.readFile(path.join(process.cwd(), 'package.json'))
             return console.error('Couldn\'t parse package.json');
         }
 
-        return showDeps(data.dependencies)
+        const deps = Object.assign(
+            {},
+            data.dependencies,
+            includeDevDeps ? data.devDependencies : {}
+        );
+
+        if (!Object.keys(deps).length) {
+            console.log('Dependencies not found');
+        }
+
+        return showDeps(deps)
             .then((packages) => {
                 packages.sort((a, b) => b.date.getTime() - a.date.getTime());
                 prettyPrint(packages);
@@ -40,17 +53,20 @@ function showDeps(deps, parentDeps) {
     parentDeps = parentDeps || [];
 
     let packages = [];
-    let chain = Promise.resolve();
 
-    utils.forEach(deps, (version, name) => {
-        chain = chain
-            .then(() => getAboutPackage(name))
+    const promises = utils.map(deps, (version, name) => {
+        return getAboutPackage(name)
             .then((data) => {
-                if (!data) { return; }
+                if (!data || !data.versions || !data.time) { return; }
 
-                if (!data.versions) { return; }
                 const versions = Object.keys(data.versions);
                 const lastVersion = semver.maxSatisfying(versions, version);
+
+                if (!data.time[lastVersion]) {
+                    // TODO: add log
+                    return;
+                }
+
                 const pack = {
                     date: new Date(data.time[lastVersion]),
                     version: lastVersion,
@@ -60,20 +76,32 @@ function showDeps(deps, parentDeps) {
 
                 packages.push(pack);
 
-                let deps = data.versions[lastVersion] && data.versions[lastVersion].dependencies;
-                if (deps)  {
-                    parentDeps = parentDeps.concat(name);
-                    deps = utils.filterValues(deps, (version, name) => parentDeps.indexOf(name) == -1);
-                    return showDeps(deps, parentDeps)
+                if (!data.versions[lastVersion]) {
+                    // TODO: add log
+                    return;
+                }
+
+                let deps = Object.assign(
+                    {},
+                    data.versions[lastVersion].dependencies,
+                    includeDevDeps ? data.versions[lastVersion].devDependencies : {}
+                );
+
+                if (Object.keys(deps).length)  {
+                    const newParentDeps = parentDeps.concat(name);
+                    deps = utils.filterValues(deps, (version, name) => newParentDeps.indexOf(name) == -1);
+                    return showDeps(deps, newParentDeps)
                         .then((packs) => packages = packages.concat(packs));
                 }
             });
     });
 
-    return chain.then(() => packages);
+    return Promise.all(promises).then(() => packages);
 }
 
 function prettyPrint(packages) {
+    packages.sort((a, b) => b.date.getTime() - a.date.getTime());
+    packages = deduplicate(packages);
     const slicedPackages = packages.slice(0, listLength);
 
     let table = slicedPackages.map(formatLog);
@@ -108,7 +136,9 @@ function formatLog(pack) {
     }
 
     let parents = '';
-    if (pack.parentDeps.length) {
+    if (pack.from) {
+        parents = chalk.magenta(pack.from.map(e => e + '...').join(', '));
+    } else if (pack.parentDeps.length) {
         parents = chalk.magenta(pack.parentDeps.join(' -> '));
     }
 
@@ -135,9 +165,7 @@ function processVersions(versions) {
 
 function getAboutPackage(name) {
     if (!packageCache[name]) {
-        packageCache[name] = got(registry + name, {
-            json: true
-        }).then((data) => {
+        packageCache[name] = get(registry + name).then((data) => {
             return {
                 time: data.body.time,
                 versions: processVersions(data.body.versions)
@@ -147,7 +175,35 @@ function getAboutPackage(name) {
         });
     }
 
-    console.log(name);
+    // console.log(name);
 
     return packageCache[name];
+}
+
+function deduplicate(packages) {
+    const uniqs = {};
+
+    packages.forEach(pack => {
+        const uniq = uniqs[pack.name + pack.version];
+
+        if (uniqs[pack.name + pack.version]) {
+            pack.parentDeps[0] && uniq.from.push(pack.parentDeps[0]);
+        } else {
+            pack.from = pack.parentDeps[0] ? [pack.parentDeps[0]] : [];
+            uniqs[pack.name + pack.version] = pack;
+        }
+    });
+
+    const res = [];
+    for (const key in uniqs) {
+        const uniq = uniqs[key];
+        if (uniq.from.length == 1) {
+            uniq.from = null;
+        } else {
+            uniq.from = _.uniq(uniq.from);
+        }
+        res.push(uniqs[key]);
+    }
+
+    return res;
 }
